@@ -11,12 +11,19 @@ import pytesseract
 import random
 import threading
 import nltk
+from threading import Thread, Lock
+
 
 cur_field = None
-
 mode = 'm'
 # note: these must be one word each
 fields = ['main']
+
+timer_lock = Lock()
+ret_field = None
+ret_time = None
+ret_mode = None
+last_match_info_fetch_time = 0
 
 class Sides:
     FRONT = 0
@@ -67,8 +74,8 @@ def get_match_info_with_ocr():
     orig_img = np.array(myScreenshot)
     img = process_img(orig_img)
 
-    # plt.imshow(img, cmap='gray')
-    # plt.show()
+    plt.imshow(img, cmap='gray')
+    plt.savefig("screenshot.png")
 
     # perform OCR on img
     text = pytesseract.image_to_string(img)
@@ -115,6 +122,19 @@ def get_match_info_with_ocr():
         print(e)
         return None, None, None
 
+def match_info_ocr_thread():
+    global ret_field, ret_time, ret_mode, last_match_info_fetch_time
+    while True:
+        secs_left, match_status, match_field = get_match_info_with_ocr()
+        if secs_left is not None:
+            with timer_lock:
+                ret_field = match_field
+                ret_time = secs_left
+                print('updated match info', secs_left)
+                ret_mode = match_status
+                last_match_info_fetch_time = time.time()
+        time.sleep(0.1)
+
 class FieldLED():
     # A setup of 450 LEDs arranged in a square
     def __init__(self, port, baudrate, field_name, corner_indices, total_lights=15*30):
@@ -122,9 +142,8 @@ class FieldLED():
         self.field_name = field_name
         self.corner_indices = corner_indices
         self.total_lights = total_lights
-        self.last_match_info_fetch_time = 0
         self.secs, self.whole_secs, self.match_mode, self.field, self.rate, self.prev_get_info_time = 15, 15, None, None, 0, 0
-        self.light_states = np.zeros((total_lights, 3))
+        self.light_states = np.zeros((total_lights, 3), dtype=int)
     
     def clear(self):
         send_colors_to_pixels(self.ser, (0, self.total_lights), np.array([0, 0, 0]))
@@ -134,23 +153,27 @@ class FieldLED():
         field = None
         td = call_time - self.prev_get_info_time
         self.prev_get_info_time = call_time
-        if call_time - self.last_match_info_fetch_time > 0.5:
-            self.last_match_info_fetch_time = call_time
-            secs_recvd, mode, field = get_match_info_with_ocr()
+        with timer_lock:
+            lmf = last_match_info_fetch_time
+        if call_time - lmf > 0.1:
+            with timer_lock:
+                secs_recvd, mode, field = ret_time, ret_mode, ret_field
             if secs_recvd is not None:
                 self.whole_secs = secs_recvd
-                self.rate = (self.secs - secs_recvd) / 1
+                self.rate = (self.secs - secs_recvd) / 1 + 1.5
+                if mode is not None and mode != self.match_mode:
+                    self.secs = secs_recvd
+                    self.rate = 0
                 self.match_mode = mode if mode is not None else self.match_mode
         self.secs = self.secs - self.rate * td
         return (self.secs, self.match_mode, field)
 
     def display_pixels(self, new_light_states):
+        new_light_states = np.array(new_light_states).astype(int)
         # find differences between adjacent pixels
         diffs = np.abs(np.diff(new_light_states, axis=0, prepend=0) != 0).sum(axis=-1)
         delta_nonzero_zero_breaks = np.subtract(new_light_states, self.light_states) != 0
         delta = np.abs(np.diff(delta_nonzero_zero_breaks, axis=0, prepend=0)).sum(axis=-1)
-        # print("diffs and delta", self.light_states[95:105, :2].tolist(),
-        #       new_light_states[95:105, :2].tolist(), diffs[95:105], delta[95:105])
         # extract contiguous ranges of equal values
         diffs_with_delta = (diffs + delta) > 0
         interval_boundaries = np.nonzero(diffs_with_delta)[0].tolist()
@@ -158,34 +181,52 @@ class FieldLED():
             interval_boundaries.insert(0, 0)
         if interval_boundaries[-1] != len(diffs_with_delta) - 1:
             interval_boundaries.append(len(diffs_with_delta) - 1)
-        # print(interval_boundaries)
-        # print(new_light_states[95:105])
         for i, boundary in enumerate(interval_boundaries[:-1]):
             cur_interval = (interval_boundaries[i], interval_boundaries[i+1])
             cur_start = interval_boundaries[i]
-            # print(cur_interval, i, interval_boundaries[i])
             if np.linalg.norm(new_light_states[cur_start] - self.light_states[cur_start]) > 0:
                 send_colors_to_pixels(self.ser, cur_interval, new_light_states[cur_start])
 
         self.light_states = new_light_states
 
-    def display_time(self, time, mode):
+    def display_time(self, time_cur, mode):
         state = np.zeros((self.total_lights, 3))
         timer_bounds = [0, 100]
-        state[timer_bounds[0]: timer_bounds[1]] = [255, 0, 0]
+        state[timer_bounds[0]: timer_bounds[1]] = [100, 0, 100]
         tot_time_for_mode = 105 if mode == 'driver' else 15
-        fraction = time / tot_time_for_mode
+        tot_time_for_mode -= 3
+        fraction = (time_cur - 1.5) / tot_time_for_mode
+        fraction = max(min(fraction, 1), 0)
+
         divider_location = timer_bounds[1] * fraction
-        state[timer_bounds[0]:int(divider_location) + 1] = [0, 255, 0]
+        state[timer_bounds[0]:int(divider_location) + 1] = [255, 255, 255]
         # interpolate colors near divider
         frac = (divider_location - int(divider_location))
-        state[int(divider_location)] = [255*(1-frac), 255*frac, 0]
-        # print(divider_location, state[90:100, :2])
-        # print(state[:100])
+        state[int(divider_location)] = [255*frac + 100*(1-frac), 255*frac, 255*frac + 100*(1-frac)]
 
-        self.display_pixels(state)
+        if mode == 'driver' and abs(fraction - 30/105) < 0.01:
+            black = np.zeros((self.total_lights, 3))
+            orange = np.zeros((self.total_lights, 3))
+            orange[timer_bounds[0]: timer_bounds[1]] = [255, 165, 0]
+            self.display_pixels(orange)
+            time.sleep(0.2)
+            self.display_pixels(black)
+            time.sleep(0.2)
+            self.display_pixels(orange)
+            time.sleep(0.2)
+        elif abs(fraction - 0/105) < 0.01:
+            black = np.zeros((self.total_lights, 3))
+            red = np.zeros((self.total_lights, 3))
+            red[timer_bounds[0]: timer_bounds[1]] = [255, 0, 0]
+            self.display_pixels(red)
+            time.sleep(0.2)
+            self.display_pixels(black)
+            time.sleep(0.2)
+            self.display_pixels(red)
+            time.sleep(0.2)
+        else:
+            self.display_pixels(state)
         
-
     def index_to_pos(self, indices):
         return (indices + self.corner_indices[0]) % self.total_lights
 
@@ -198,9 +239,14 @@ if __name__ == '__main__':
     field = FieldLED('/dev/cu.usbmodem14301', 230400, 'main', [0, 100], total_lights=15*30)
     time.sleep(4)
     field.clear()
+
+    # start match info thread
+    match_info_thread = threading.Thread(target=match_info_ocr_thread)
+    match_info_thread.start()
+
     while True:
         if mode == 'm':
             # send_colors_to_pixels(ser, (0, 100), np.array([244, 5, 0 + int(mode=='m')*200]), delay=0.05)
             time_remaining, match_mode, field_name = field.get_match_info()
             field.display_time(time_remaining, match_mode)
-            time.sleep(0.1)
+            time.sleep(0.04)
