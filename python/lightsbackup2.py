@@ -17,6 +17,7 @@ from threading import Thread, Lock
 cur_field = None
 mode = 'm'
 just_switched = False
+fields = ['bb-8', 'c-3po']
 # note: these must be one word each
 
 timer_lock = Lock()
@@ -25,34 +26,11 @@ ret_time = None
 ret_mode = None
 last_match_info_fetch_time = 0
 
-secs, whole_secs, match_mode, field, rate, prev_get_info_time = 15, 15, None, None, 0, 0
-
 class Sides:
     FRONT = 0
     LEFT = 1
     RIGHT = 2
     BACK = 3
-
-def get_match_info():
-    global prev_get_info_time, whole_secs, rate, secs, match_mode, field
-    call_time = time.time()
-    field = None
-    td = call_time - prev_get_info_time
-    prev_get_info_time = call_time
-    with timer_lock:
-        lmf = last_match_info_fetch_time
-    if call_time - lmf > 0.1:
-        with timer_lock:
-            secs_recvd, mode, field = ret_time, ret_mode, ret_field
-        if secs_recvd is not None:
-            whole_secs = secs_recvd
-            rate = (secs - secs_recvd) / 1 + 1.5
-            if mode is not None and mode != match_mode:
-                secs = secs_recvd
-                rate = 0
-            match_mode = mode if mode is not None else match_mode
-    secs = secs - rate * td
-    return (secs, match_mode, field)
 
 def get_input():
     global mode, just_switched
@@ -63,23 +41,27 @@ def get_input():
             just_switched = True
 
 def send_str(ser, str, delay=0.015, num_times=25):
+    print("Sending " + str)
+    # print stack trace
     for _ in range(num_times):
         ser.write(bytes(str, 'utf-8'))
         time.sleep(delay)
 
 def send_colors_to_pixels(ser, pixel_range, colors, delay=0.015):
-    if ser is not None:
-        colors = colors.astype(int)
-        # write colors in order as string
-        color_str = str(colors[0] + 1) + " " + str(colors[1] + 1) + " " + str(colors[2] + 1)
-        send_str = 'x1 ' + str(pixel_range[0] + 1) + " " + str(pixel_range[1] + 1) + " " + color_str + 'yz'
-        print(send_str)
-        ser.write(bytes(send_str, 'utf-8'))
+    if ser is None:
+        time.sleep(delay)
+        return
+    colors = colors.astype(int)
+    # write colors in order as string
+    color_str = str(colors[0] + 1) + " " + str(colors[1] + 1) + " " + str(colors[2] + 1)
+    send_str = 'x1 ' + str(pixel_range[0] + 1) + " " + str(pixel_range[1] + 1) + " " + color_str + 'yz'
+    print(send_str)
+    ser.write(bytes(send_str, 'utf-8'))
     time.sleep(delay)
 
 def similar_words(w1, w2):
     # levenshtein distance
-    return nltk.edit_distance(w1.lower(), w2.lower()) <= 2
+    return nltk.edit_distance(w1.lower(), w2.lower()) <= 1
 
 def process_img(img, high_contrast=False):
     img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
@@ -87,11 +69,11 @@ def process_img(img, high_contrast=False):
         gray, img_bin = cv2.threshold(img,220,255,cv2.THRESH_BINARY) # | cv2.THRESH_OTSU
     else:
         gray, img_bin = cv2.threshold(img,127,255,cv2.THRESH_BINARY | cv2.THRESH_OTSU)
-    gray = img_bin #cv2.bitwise_not(img_bin)
+    gray = cv2.bitwise_not(img_bin)
     kernel = np.ones((2, 1), np.uint8)
     img = cv2.erode(gray, kernel, iterations=1)
     img = cv2.dilate(img, kernel, iterations=1)
-    # img = cv2.resize(img, (0, 0), fx=0.5, fy=0.5)
+    img = cv2.resize(img, (0, 0), fx=0.5, fy=0.5)
     return img  
 
 def get_match_info_with_ocr():
@@ -108,7 +90,7 @@ def get_match_info_with_ocr():
     plt.savefig("screenshot.png")
 
     # perform OCR on img
-    text = pytesseract.image_to_string(img, config='--psm 11')
+    text = pytesseract.image_to_string(img)
     # for time left, find the numbers on either side of the colon
     try:
         colon_idx = text.index(':')
@@ -132,16 +114,20 @@ def get_match_info_with_ocr():
         # get match field
         match_field = None
         for i, string in enumerate(strings):
-            match_field = match_field or field_with_name(fields, string)[1]
+            for fname in fields:
+                if similar_words(string, fname):
+                    match_field = fname
+                    break
         if match_field is None:
             img = orig_img[500:-100]
-            img = process_img(img, high_contrast=True)[140:170, 120:250]
-            plt.imshow(img, cmap='gray')
-            plt.savefig("screenshot-sub.png")
-            text = pytesseract.image_to_string(img, config='--psm 6')
+            img = process_img(img, high_contrast=True)
+            text = pytesseract.image_to_string(img)
             strings = text.split()
             for i, string in enumerate(strings):
-                match_field = match_field or field_with_name(fields, string)[1]
+                for fname in fields:
+                    if similar_words(string, fname):
+                        match_field = fname
+                        break
         
         return secs_left, match_status, match_field
     except Exception as e:
@@ -152,7 +138,7 @@ def match_info_ocr_thread():
     global ret_field, ret_time, ret_mode, last_match_info_fetch_time
     while True:
         secs_left, match_status, match_field = get_match_info_with_ocr()
-        # print(secs_left, match_status, match_field)
+        print(secs_left, match_status, match_field)
         if secs_left is not None:
             with timer_lock:
                 ret_field = match_field
@@ -166,13 +152,33 @@ class FieldLED():
     def __init__(self, port, baudrate, field_name, corner_indices, total_lights=15*30):
         self.ser = None #pyserial.Serial(port, baudrate)
         self.field_name = field_name
-        self.name = field_name
         self.corner_indices = corner_indices
         self.total_lights = total_lights
+        self.secs, self.whole_secs, self.match_mode, self.field, self.rate, self.prev_get_info_time = 15, 15, None, None, 0, 0
         self.light_states = np.zeros((total_lights, 3), dtype=int)
     
     def clear(self):
         send_colors_to_pixels(self.ser, (0, self.total_lights), np.array([0, 0, 0]))
+
+    def get_match_info(self):
+        call_time = time.time()
+        field = None
+        td = call_time - self.prev_get_info_time
+        self.prev_get_info_time = call_time
+        with timer_lock:
+            lmf = last_match_info_fetch_time
+        if call_time - lmf > 0.1:
+            with timer_lock:
+                secs_recvd, mode, field = ret_time, ret_mode, ret_field
+            if secs_recvd is not None:
+                self.whole_secs = secs_recvd
+                self.rate = (self.secs - secs_recvd) / 1 + 1.5
+                if mode is not None and mode != self.match_mode:
+                    self.secs = secs_recvd
+                    self.rate = 0
+                self.match_mode = mode if mode is not None else self.match_mode
+        self.secs = self.secs - self.rate * td
+        return (self.secs, self.match_mode, field)
 
     def display_pixels(self, new_light_states, diff=True):
         new_light_states = np.array(new_light_states).astype(int)
@@ -202,11 +208,8 @@ class FieldLED():
 
     def display_time(self, time_cur, mode):
         state = np.zeros((self.total_lights, 3))
-        state[self.corner_indices[1]:(self.corner_indices[2] + self.corner_indices[3])//2] = [0, 0, 20]
-        state[(self.corner_indices[2] + self.corner_indices[3])//2:self.total_lights] = [20, 0, 0]
-
-        timer_bounds = [0, self.total_lights//4]
-        state[timer_bounds[0]: timer_bounds[1]] = [20, 0, 20]
+        timer_bounds = [0, 100]
+        state[timer_bounds[0]: timer_bounds[1]] = [100, 0, 100]
         tot_time_for_mode = 105 if mode == 'driver' else 15
         tot_time_for_mode -= 3
         fraction = (time_cur - 1.5) / tot_time_for_mode
@@ -216,9 +219,9 @@ class FieldLED():
         state[timer_bounds[0]:int(divider_location) + 1] = [255, 255, 255]
         # interpolate colors near divider
         frac = (divider_location - int(divider_location))
-        state[int(divider_location)] = [255*frac + 20*(1-frac), 255*frac, 255*frac + 20*(1-frac)]
+        state[int(divider_location)] = [255*frac + 100*(1-frac), 255*frac, 255*frac + 100*(1-frac)]
 
-        if mode == 'driver' and abs(fraction - 30/tot_time_for_mode) < 0.01:
+        if mode == 'driver' and abs(fraction - 30/105) < 0.01:
             black = np.zeros((self.total_lights, 3))
             orange = np.zeros((self.total_lights, 3))
             orange[timer_bounds[0]: timer_bounds[1]] = [255, 165, 0]
@@ -228,10 +231,10 @@ class FieldLED():
             time.sleep(0.2)
             self.display_pixels(orange, diff=False)
             time.sleep(0.2)
-        elif abs(fraction - 0/tot_time_for_mode) < 0.01:
+        elif abs(fraction - 0/105) < 0.01:
             black = np.zeros((self.total_lights, 3))
             red = np.zeros((self.total_lights, 3))
-            red[timer_bounds[0]: timer_bounds[1]] = [200, 30, 30]
+            red[timer_bounds[0]: timer_bounds[1]] = [255, 0, 0]
             self.display_pixels(red, diff=False)
             time.sleep(0.2)
             self.display_pixels(black, diff=False)
@@ -261,9 +264,8 @@ class FieldLED():
     
     def initialize_red_blue_dim_sides(self):
         # initialize red and blue sides
-        for _ in range(20):
-            send_str(self.ser, 'x2 56 281yz', num_times=1)
-            send_str(self.ser, 'x3 56 281yz', num_times=1)
+        send_str(self.ser, 'x2 56 281yz')
+        send_str(self.ser, 'x3 56 281yz')
 
         # self.display_pixels(new_state)
         time.sleep(0.04)
@@ -298,7 +300,7 @@ def old_main():
     while True:
         if mode == 'm':
             # send_colors_to_pixels(ser, (0, 100), np.array([244, 5, 0 + int(mode=='m')*200]), delay=0.05)
-            time_remaining, match_mode, field_name = get_match_info()
+            time_remaining, match_mode, field_name = field.get_match_info()
             field.display_time(time_remaining, match_mode)
         elif mode == 'd':
             if just_switched:
@@ -317,42 +319,26 @@ def old_main():
                 field.throb(red=False)
                 just_switched = False
         elif mode == 'r':
-            field.rainbow()
+            if just_switched:
+                field.rainbow()
+                just_switched = False
         time.sleep(0.04)
 
-def match_words(word_list, target, thresh=2):
-    # find closest word
-    closest_word, closest_dist = None, float('inf')
-    for word in word_list:
-        dist = nltk.edit_distance(word, target)
-        if dist < closest_dist:
-            closest_word, closest_dist = word, dist
-    if closest_dist > thresh:
-        return None
-    return closest_word
-
 def field_with_name(field_list, name):
-    field_names = [field.name for field in field_list]
-    closest_field = match_words(field_names, name, thresh=2)
-    if closest_field is None:
-        return None, None
-    return field_list[field_names.index(closest_field)], closest_field
+    for field in field_list:
+        if similar_words(field.name, name):
+            return field
+    return None
 
 if __name__ == '__main__':
     # new thread for get_input
     get_input_thread = threading.Thread(target=get_input)
     get_input_thread.start()
 
-    fields = [FieldLED('/dev/cu.usbmodem14201', 19200, 'C-3PO', [0, 450//4, 450//2, 450*3//4], total_lights=15*30),
-    FieldLED('/dev/cu.usbmodem14301', 19200, 'BB-8', [0, 450//4, 450//2, 450*3//4], total_lights=15*30),
-    FieldLED('/dev/cu.usbmodem14401', 19200, 'R2-D2', [0, 450//4, 450//2, 450*3//4], total_lights=15*30)]
-
-    current_field = None
-
+    field = FieldLED('/dev/cu.usbmodem14201', 19200, 'main', [0, 450//4, 450//2, 450*3//4], total_lights=15*30)
     time.sleep(4)
     # clear fields
-    for field in fields:
-        field.clear()
+    field.clear()
 
     # start match info thread
     match_info_thread = threading.Thread(target=match_info_ocr_thread)
@@ -360,21 +346,17 @@ if __name__ == '__main__':
 
     while True:
         if mode == 'm':
-            if just_switched:
-                for field in fields:
-                    field.initialize_red_blue_lights()
-                just_switched = False                
             # send_colors_to_pixels(ser, (0, 100), np.array([244, 5, 0 + int(mode=='m')*200]), delay=0.05)
-            time_remaining, match_mode, field_name = get_match_info()
-            if (field_name and (not current_field or field_name != current_field.name)):
-                if current_field:
-                    current_field.initialize_red_blue_dim_sides()
-                current_field, current_field_name = field_with_name(fields, field_name)
-            if (match_mode in ['driver', 'autonomous', 'paused'] or \
-                time_remaining > 0 and np.absolute((time_remaining - np.array([15, 105]))).min() > 2):
-                current_field.display_time(time_remaining, match_mode)
-            # current_field.display_time(time_remaining, match_mode)
-            # field.display_time(time_remaining, match_mode)
+            time_remaining, match_mode, field_name = field.get_match_info()
+            field.display_time(time_remaining, match_mode)
+        elif mode == 'd':
+            if just_switched:
+                field.initialize_red_blue_lights()
+                just_switched = False
+        elif mode == 'p':
+            if just_switched:
+                field.initialize_red_blue_dim_sides()
+                just_switched = False
         elif mode == 'tr':
             if just_switched:
                 field.throb(red=True)
