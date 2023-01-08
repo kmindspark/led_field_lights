@@ -154,6 +154,17 @@ def match_info_ocr_thread():
                 last_match_info_fetch_time = time.time()
         time.sleep(0.1)
 
+def do_match_info_ocr():
+    global ret_field, ret_time, ret_mode, last_match_info_fetch_time
+    secs_left, match_status, match_field = get_match_info_with_ocr()
+    # print(secs_left, match_status, match_field)
+    if secs_left is not None:
+        with timer_lock:
+            ret_field = match_field
+            ret_time = secs_left
+            ret_mode = match_status
+            last_match_info_fetch_time = time.time()
+
 class FieldLED():
     # A setup of 450 LEDs arranged in a square
     def __init__(self, port, baudrate, field_name, pretend=False):
@@ -221,8 +232,8 @@ if __name__ == '__main__':
     #     field.clear()
 
     # start match info thread
-    match_info_thread = threading.Thread(target=match_info_ocr_thread)
-    match_info_thread.start()
+    # match_info_thread = threading.Thread(target=match_info_ocr_thread)
+    # match_info_thread.start()
 
     while True:
         if mode == 'm':
@@ -231,6 +242,10 @@ if __name__ == '__main__':
                     field.initialize_red_blue_lights()     
                 just_switched = False           
             # send_colors_to_pixels(ser, (0, 100), np.array([244, 5, 0 + int(mode=='m')*200]), delay=0.05)
+            try:
+                do_match_info_ocr()
+            except:
+                pass
             time_remaining, match_mode, field_name = get_match_info()
             print(time_remaining, match_mode, current_field.name if current_field else None)
             if (field_name and (not current_field or field_name != current_field.name)):
