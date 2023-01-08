@@ -29,7 +29,7 @@ void setup()
 {
   Serial.begin(19200);
   Serial.setTimeout(5);
-  FastLED.addLeds<WS2812, 2, GRB>(leds, 450);
+  FastLED.addLeds<WS2812, 3, GRB>(leds, 450);
   pinMode(blueReadyButtonPin, INPUT_PULLUP);
   pinMode(redReadyButtonPin, INPUT_PULLUP);
 }
