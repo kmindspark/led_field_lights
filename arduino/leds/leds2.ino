@@ -7,8 +7,8 @@ int max_led = 440;
 // mode: 0 (led lights), 1 (red dull), 2 (blue dull)
 // 3 (red pulse), 4 (blue pulse), 5 (rainbow),
 // 6 (blue red chase), 7 (field split), 8 (calibrate), 9 (off)
-int mode = 5;
-int prev_mode = 5;
+int mode = 7;
+int prev_mode = 7;
 long t = 0;
 
 int startLED = 0;
@@ -22,10 +22,10 @@ int blue_pulsing = false;
 int blueReadyButtonPin = 11;
 int redReadyButtonPin = 12;
 
-int back_left = 50;
-int front_left = max_led/4 + back_left;
-int front_right = max_led/2 + back_left;
-int back_right = max_led*3/4 + back_left;
+int back_left = 73;
+int front_left = max_led/4 + back_left - 4;
+int front_right = max_led/2 + back_left - 4;
+int back_right = max_led*3/4 + back_left - 4;
 
 double alpha = 0.99;
 long time_upper;
@@ -104,6 +104,11 @@ void field_split(long t, bool osc){
   }
   int low_intensity = 0;
   int one_side_leds = max_led / 4;
+  // set all to blue
+  // for (int i = 0; i < max_led; i++){
+  //   leds[i] = CRGB(0, 0, 255);
+  // }
+
   for (int i = back_left; i < front_left; i++){
     leds[i] = CRGB(low_intensity, 0, intensity);
   }
@@ -119,8 +124,8 @@ void field_split(long t, bool osc){
   for (int i = back_right; i < back_right + one_side_leds/2; i++){
     leds[i % max_led] = CRGB(intensity, 0, low_intensity);
   }
-  for (int i = back_right + one_side_leds/2; i < back_right + one_side_leds; i++){
-    leds[i % max_led] = CRGB(low_intensity, 0, intensity);
+  for (int i = back_right + one_side_leds/2; i < tot_len + back_left; i++){ //back_right + one_side_leds
+    leds[i % max_led] = CRGB(low_intensity, 0, intensity); 
   }
 }
 
@@ -137,6 +142,20 @@ void rainbow(long t){
   // for (int i = front_left; i < front_right; i++){
   //   leds[i] = CRGB(255, 0, 255);
   // }
+}
+
+void flash_green(long t){
+  int brightness = ((t / 3) % 2) * 100;
+  for (int i = 0; i < max_led; i++){
+    leds[i] = CRGB(0, brightness, 0);
+  }
+}
+
+void flash_yellow(long t){
+  int brightness = ((t / 15) % 2) * 100;
+  for (int i = 0; i < max_led; i++){
+    leds[i] = CRGB(brightness, brightness, 0);
+  }
 }
 
 void display_time(double fraction){
@@ -200,7 +219,7 @@ void loop()
       
       delay(30);
       while(Serial.available() > 0) {
-        char t = Serial.read();
+        char dump = Serial.read();
       }
       prevVals = vals;
       break;
@@ -236,12 +255,23 @@ void loop()
       Serial.println(time_upper);
       cur_time = time_upper; //alpha*cur_time + time_upper*(1-alpha);
       last_bound_update_time = now;
-      display_time(((double) cur_time) /((double) tot_time));
+
+      if (abs(cur_time - 10000) <= 1000 && tot_time == 105000){
+        flash_green(t);
+      }
+      else if (abs(cur_time - 0) < 500){
+        flash_yellow(t);
+      }
+      else{
+        display_time(((double) cur_time) /((double) tot_time));
+      }
       FastLED.show();
+      
       while(Serial.available() > 0) {
-        char t = Serial.read();
+        char dump = Serial.read();
       }
       delay(30);
+      t += 1;
     }
 
     if (mode == 4){

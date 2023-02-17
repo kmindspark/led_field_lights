@@ -58,7 +58,7 @@ def send_str(ser, str, delay=0.015, num_times=4):
         if ser is not None:
             ser.write(bytes(str, 'utf-8'))
             print(str)
-        # time.sleep(delay)
+        time.sleep(delay)
 
 def send_colors_to_pixels(ser, pixel_range, colors, delay=0.015):
     if ser is not None:
@@ -97,8 +97,8 @@ def get_match_info_with_ocr():
     orig_img = np.array(myScreenshot)
     img = process_img(orig_img)
 
-    plt.imshow(img, cmap='gray')
-    plt.savefig("screenshot.png")
+    # plt.imshow(img, cmap='gray')
+    # plt.savefig("screenshot.png")
 
     # perform OCR on img
     text = pytesseract.image_to_string(img, config='--psm 11')
@@ -109,7 +109,7 @@ def get_match_info_with_ocr():
         secs_left = mins * 60 + secs
 
         # get match status
-        match_status = None
+        match_status = "autonomous"
         strings = text.split()
         for string in strings:
             if similar_words(string, 'autonomous'):
@@ -122,6 +122,9 @@ def get_match_info_with_ocr():
                 match_status = 'paused'
                 break
 
+        # if not (match_status is None and match_status == 'autonomous'):
+        #     match_status = match_status           
+
         # get match field
         match_field = None
         for i, string in enumerate(strings):
@@ -129,8 +132,8 @@ def get_match_info_with_ocr():
         if match_field is None:
             img = orig_img[500:-100]
             img = process_img(img, high_contrast=True)[140:170, 120:250]
-            plt.imshow(img, cmap='gray')
-            plt.savefig("screenshot-sub.png")
+            # plt.imshow(img, cmap='gray')
+            # plt.savefig("screenshot-sub.png")
             text = pytesseract.image_to_string(img, config='--psm 6')
             strings = text.split()
             for i, string in enumerate(strings):
@@ -159,11 +162,10 @@ def do_match_info_ocr():
     secs_left, match_status, match_field = get_match_info_with_ocr()
     # print(secs_left, match_status, match_field)
     if secs_left is not None:
-        with timer_lock:
-            ret_field = match_field
-            ret_time = secs_left
-            ret_mode = match_status
-            last_match_info_fetch_time = time.time()
+        ret_field = match_field
+        ret_time = secs_left
+        ret_mode = match_status
+        last_match_info_fetch_time = time.time()
 
 class FieldLED():
     # A setup of 450 LEDs arranged in a square
@@ -180,22 +182,22 @@ class FieldLED():
         send_str(self.ser, f'x0 {time_cur} {tot_time}yz')
 
     def initialize_red_blue_osc(self):
-        send_str(self.ser, 'x4yz')
+        send_str(self.ser, 'x4yz', num_times=5)
 
     def rainbow(self):
-        send_str(self.ser, 'x5yz')
+        send_str(self.ser, 'x5yz', num_times=7)
 
     def chase(self):
-        send_str(self.ser, 'x6yz')
+        send_str(self.ser, 'x6yz', num_times=7)
 
     def initialize_red_blue_lights(self):
-        send_str(self.ser, 'x7yz')
+        send_str(self.ser, 'x7yz', num_times=10)
     
     def calibrate(self):
-        send_str(self.ser, 'x8yz')
+        send_str(self.ser, 'x8yz', num_times=7)
     
     def clear(self):
-        send_str(self.ser, 'x9yz')
+        send_str(self.ser, 'x9yz', num_times=7)
 
 def match_words(word_list, target, thresh=2):
     # find closest word
@@ -209,6 +211,8 @@ def match_words(word_list, target, thresh=2):
     return closest_word
 
 def field_with_name(field_list, name):
+    if name is None:
+        return None, None
     field_names = [field.name for field in field_list]
     closest_field = match_words(field_names, name, thresh=2)
     if closest_field is None:
@@ -220,8 +224,8 @@ if __name__ == '__main__':
     get_input_thread = threading.Thread(target=get_input)
     get_input_thread.start()
 
-    fields = [FieldLED('/dev/cu.usbmodem101', 19200, 'Curiosity', pretend=False),
-    FieldLED('/dev/cu.usbmodem14301', 19200, 'Perseverance', pretend=True),]
+    fields = [FieldLED('/dev/cu.usbmodem141301', 19200, 'Waymo', pretend=False),
+    FieldLED('/dev/cu.usbmodem14301', 19200, 'SpaceX', pretend=True),]
     # FieldLED('/dev/cu.usbmodem14401', 19200, 'R2-D2', [0, 450//4, 450//2, 450*3//4], total_lights=15*30)]
 
     current_field = None
@@ -243,21 +247,26 @@ if __name__ == '__main__':
                 just_switched = False           
             # send_colors_to_pixels(ser, (0, 100), np.array([244, 5, 0 + int(mode=='m')*200]), delay=0.05)
             try:
+                print("starting ocr")
                 do_match_info_ocr()
+                print('ending ocr')
             except:
                 pass
             time_remaining, match_mode, field_name = get_match_info()
+            current_field_proposal, current_field_name_proposal = field_with_name(fields, field_name)
             print(time_remaining, match_mode, current_field.name if current_field else None)
-            if (field_name and (not current_field or field_name != current_field.name)):
+            if (current_field_name_proposal and (not current_field or current_field_name_proposal != current_field.name)):
                 if current_field:
-                    current_field.initialize_red_blue_osc()
-                current_field_proposal, current_field_name_proposal = field_with_name(fields, field_name)
-                if current_field_proposal is not None:
-                    current_field, current_field_name = current_field_proposal, current_field_name_proposal
-                    current_field.initialize_red_blue_osc()
+                    print('switching fields, initializing lights for field:', current_field.name)
+                    current_field.initialize_red_blue_lights()
+                    time.sleep(0.5)
+                    current_field.initialize_red_blue_lights()
+                current_field, current_field_name = current_field_proposal, current_field_name_proposal
+                current_field.initialize_red_blue_lights()
+                match_status = "autonomous"
             if current_field is not None and (match_mode in ['driver', 'autonomous', 'paused'] or \
                 time_remaining > 0): #and np.absolute((time_remaining - np.array([15, 105]))).min() > 2):
-                current_field.display_time(time_remaining, match_mode)                
+                current_field.display_time(time_remaining, match_mode)
         elif mode == 'r':
             if just_switched:
                 for field in fields:
