@@ -76,7 +76,7 @@ String getValue(String data, char separator, int index)
 void red_blue_chase(long t){
   int period = (int) (max_led / 2);
   int half_period = (int) (period / 2);
-  for (int i = 0; i < max_led; i++){
+  for (int i = 0; i < tot_len; i++){
     int r = (int) (255.0*abs(((t + i) % period) - half_period)/half_period);
     int b = 255 - r;
     leds[i] = CRGB(r, 0, b);
@@ -123,17 +123,17 @@ void field_split(long t, bool osc){
     leds[i] = CRGB(field_split_brightness_pos(i, t), 0, low_intensity);
   }
   for (int i = back_right; i < back_right + one_side_leds/2; i++){
-    leds[i % max_led] = CRGB(field_split_brightness_pos(i % max_led, t), 0, low_intensity);
+    leds[i % tot_len] = CRGB(field_split_brightness_pos(i % max_led, t), 0, low_intensity);
   }
   for (int i = back_right + one_side_leds/2; i < back_right + one_side_leds; i++){
-    leds[i % max_led] = CRGB(low_intensity, 0, field_split_brightness_pos(i % max_led, t));
+    leds[i % tot_len] = CRGB(low_intensity, 0, field_split_brightness_pos(i % max_led, t));
   }
 }
 
 void rainbow(long t){
   int period = (int) (max_led / 2);
   int half_period = (int) (period / 2);
-  for (int i = 0; i < max_led; i++){
+  for (int i = 0; i < tot_len; i++){
     leds[i] = CHSV(255.0*((t + i) % period)/period, 255, 200);
   }
   // field_split(t);
@@ -157,7 +157,7 @@ void soft_pulse(bool end){
     brightness =  135 + 120*sin(millis() / 50);
     color = CRGB(120*brightness, 120*brightness, 0);
   }
-  for (int i = 0; i < max_led; i++){
+  for (int i = 0; i < tot_len; i++){
     leds[i] = color;
   }
 }
