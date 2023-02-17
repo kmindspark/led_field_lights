@@ -221,7 +221,7 @@ if __name__ == '__main__':
     get_input_thread.start()
 
     fields = [FieldLED('/dev/cu.usbmodem101', 19200, 'Curiosity', pretend=False),
-    FieldLED('/dev/cu.usbmodem14301', 19200, 'Perseverance', pretend=True),]
+    FieldLED('/dev/cu.usbmodem2101', 19200, 'Perseverance', pretend=False),]
     # FieldLED('/dev/cu.usbmodem14401', 19200, 'R2-D2', [0, 450//4, 450//2, 450*3//4], total_lights=15*30)]
 
     current_field = None
