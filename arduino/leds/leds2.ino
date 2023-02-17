@@ -76,7 +76,7 @@ String getValue(String data, char separator, int index)
 void red_blue_chase(long t){
   int period = (int) (max_led / 2);
   int half_period = (int) (period / 2);
-  for (int i = 0; i < max_led; i++){
+  for (int i = 0; i < tot_len; i++){
     int r = (int) (255.0*abs(((t + i) % period) - half_period)/half_period);
     int b = 255 - r;
     leds[i] = CRGB(r, 0, b);
@@ -97,11 +97,17 @@ void calibrate(){
   leds[back_right] = CRGB(255, 255, 0);
 }
 
+int field_split_brightness_pos(int i, long t){
+  int period = (int) (max_led / 16);
+  int half_period = (int) (period / 2);
+  return (int) (245.0*abs(((t + i) % period) - half_period)/half_period) + 10;
+}
+
 void field_split(long t, bool osc){
-  int intensity = 100;
-  if (osc){
-    intensity = 120 + 100*sin(((double) t) / ((double) 20));
-  }
+  // int intensity = 100;
+  // if (osc){
+  //   intensity = 120 + 100*sin(((double) t) / ((double) 20));
+  // }
   int low_intensity = 0;
   int one_side_leds = max_led / 4;
   // set all to blue
@@ -110,29 +116,29 @@ void field_split(long t, bool osc){
   // }
 
   for (int i = back_left; i < front_left; i++){
-    leds[i] = CRGB(low_intensity, 0, intensity);
+    leds[i] = CRGB(low_intensity, 0, field_split_brightness_pos(i, t));
   }
   for (int i = front_left; i < (front_right + front_left)/2; i++){
-    leds[i] = CRGB(low_intensity, 0, intensity);
+    leds[i] = CRGB(low_intensity, 0, field_split_brightness_pos(i, t));
   }
   for (int i = (front_right + front_left)/2; i < front_right; i++){
-    leds[i] = CRGB(intensity, 0, low_intensity);
+    leds[i] = CRGB(field_split_brightness_pos(i, t), 0, low_intensity);
   }
   for (int i = front_right; i < back_right; i++){
-    leds[i] = CRGB(intensity, 0, low_intensity);
+    leds[i] = CRGB(field_split_brightness_pos(i, t), 0, low_intensity);
   }
   for (int i = back_right; i < back_right + one_side_leds/2; i++){
-    leds[i % max_led] = CRGB(intensity, 0, low_intensity);
+    leds[i % tot_len] = CRGB(field_split_brightness_pos(i % max_led, t), 0, low_intensity);
   }
   for (int i = back_right + one_side_leds/2; i < tot_len + back_left; i++){ //back_right + one_side_leds
-    leds[i % max_led] = CRGB(low_intensity, 0, intensity); 
+    leds[i % tot_len] = CRGB(low_intensity, 0, field_split_brightness_pos(i % max_led, t)); 
   }
 }
 
 void rainbow(long t){
   int period = (int) (max_led / 2);
   int half_period = (int) (period / 2);
-  for (int i = 0; i < max_led; i++){
+  for (int i = 0; i < tot_len; i++){
     leds[i] = CHSV(255.0*((t + i) % period)/period, 255, 200);
   }
   // field_split(t);
@@ -158,22 +164,46 @@ void flash_yellow(long t){
   }
 }
 
-void display_time(double fraction){
-  int num_lights = front_right - front_left;
-  int num_bright = num_lights * fraction;
-  // Serial.println((double) (num_lights * fraction) - ((double) ((int) num_lights * fraction)));
-  int middle_brightness = 100.0 * (((double) (num_lights * fraction)) - ((int) (num_lights * fraction)));
-  // Serial.println(middle_brightness);
-  // Serial.println(num_bright);
-  for (int i = front_left; i < front_left + num_bright; i++){
-    leds[i] = CRGB(100, 0, 100);
+void soft_pulse(bool end){
+  CRGB color;
+  float brightness;
+  if (end){
+    brightness =  135 + 120*sin(millis() / 500);
+    color = CRGB(100*brightness, 60*brightness, 0);
   }
-  leds[front_left + num_bright] = CRGB(middle_brightness, 0, middle_brightness);
-  for (int i = front_left + num_bright + 1; i < front_right; i++){
-    leds[i] = CRGB(0, 0, 0);
+  else  {
+    brightness =  135 + 120*sin(millis() / 50);
+    color = CRGB(120*brightness, 120*brightness, 0);
+  }
+  for (int i = 0; i < tot_len; i++){
+    leds[i] = color;
   }
 }
 
+
+void display_time(double fraction){
+  if (time_upper < 10000 && time_upper > 8000 && tot_time == 105000){
+    soft_pulse(false);
+  }
+  else if (time_upper < 100){
+    soft_pulse(true);
+  }
+  else{
+    int num_lights = front_right - front_left;
+    int num_bright = num_lights * fraction;
+    // Serial.println((double) (num_lights * fraction) - ((double) ((int) num_lights * fraction)));
+    int middle_brightness = 100.0 * (((double) (num_lights * fraction)) - ((int) (num_lights * fraction)));
+    // Serial.println(middle_brightness);
+    // Serial.println(num_bright);
+    for (int i = front_left; i < front_left + num_bright; i++){
+      leds[i] = CRGB(100, 0, 100);
+    }
+    leds[front_left + num_bright] = CRGB(middle_brightness, 0, middle_brightness);
+    for (int i = front_left + num_bright + 1; i < front_right; i++){
+      leds[i] = CRGB(0, 0, 0);
+    }
+  }
+}
 
 
 void loop()
@@ -253,18 +283,18 @@ void loop()
       time_upper = max(cur_input_time - 1000, time_upper);
 
       Serial.println(time_upper);
-      cur_time = time_upper; //alpha*cur_time + time_upper*(1-alpha);
+      cur_time = alpha*cur_time + time_upper*(1-alpha);
       last_bound_update_time = now;
 
-      if (abs(cur_time - 10000) <= 1000 && tot_time == 105000){
-        flash_green(t);
-      }
-      else if (abs(cur_time - 0) < 500){
-        flash_yellow(t);
-      }
-      else{
-        display_time(((double) cur_time) /((double) tot_time));
-      }
+    //   if (abs(cur_time - 10000) <= 1000 && tot_time == 105000){
+    //     flash_green(t);
+    //   }
+    //   else if (abs(cur_time - 0) < 500){
+    //     flash_yellow(t);
+    //   }
+    //   else{
+      display_time(((double) cur_time) /((double) tot_time));
+    //   }
       FastLED.show();
       
       while(Serial.available() > 0) {
