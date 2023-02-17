@@ -9,7 +9,7 @@ int max_led = 440;
 // 6 (blue red chase), 7 (field split), 8 (calibrate), 9 (off)
 int mode = 7;
 int prev_mode = 7;
-long t = 0;
+long t = (long) tot_len;
 
 int startLED = 0;
 int endLED = tot_len;
@@ -22,12 +22,12 @@ int blue_pulsing = false;
 int blueReadyButtonPin = 11;
 int redReadyButtonPin = 12;
 
-int back_left = 73;
+int back_left = 71;
 int front_left = max_led/4 + back_left - 4;
-int front_right = max_led/2 + back_left - 4;
+int front_right = max_led/2 + back_left - 2;
 int back_right = max_led*3/4 + back_left - 4;
 
-double alpha = 0.99;
+double alpha = 0.2;
 long time_upper;
 long time_lower;
 long last_bound_update_time;
@@ -77,7 +77,7 @@ void red_blue_chase(long t){
   int period = (int) (max_led / 2);
   int half_period = (int) (period / 2);
   for (int i = 0; i < tot_len; i++){
-    int r = (int) (255.0*abs(((t + i) % period) - half_period)/half_period);
+    int r = (int) (255.0*abs(((t - i) % period) - half_period)/half_period);
     int b = 255 - r;
     leds[i] = CRGB(r, 0, b);
   }
@@ -98,9 +98,13 @@ void calibrate(){
 }
 
 int field_split_brightness_pos(int i, long t){
-  int period = (int) (max_led / 16);
-  int half_period = (int) (period / 2);
-  return (int) (245.0*abs(((t + i) % period) - half_period)/half_period) + 10;
+  // int period = (int) (max_led / 16);
+  // int half_period = (int) (period / 2);
+  // return (int) (245.0*abs(((t - i) % period) - half_period)/half_period) + 10;
+  if (random(1, 10) > 3){
+    return 255;
+  }
+  return 0;
 }
 
 void field_split(long t, bool osc){
@@ -116,22 +120,22 @@ void field_split(long t, bool osc){
   // }
 
   for (int i = back_left; i < front_left; i++){
-    leds[i] = CRGB(low_intensity, 0, field_split_brightness_pos(i, t));
+    leds[i] = CRGB(field_split_brightness_pos(i, t), 0, 0);
   }
   for (int i = front_left; i < (front_right + front_left)/2; i++){
-    leds[i] = CRGB(low_intensity, 0, field_split_brightness_pos(i, t));
+    leds[i] = CRGB(field_split_brightness_pos(i, t), 0, 0);
   }
   for (int i = (front_right + front_left)/2; i < front_right; i++){
-    leds[i] = CRGB(field_split_brightness_pos(i, t), 0, low_intensity);
+    leds[i] = CRGB(0, 0, field_split_brightness_pos(i, t));
   }
   for (int i = front_right; i < back_right; i++){
-    leds[i] = CRGB(field_split_brightness_pos(i, t), 0, low_intensity);
+    leds[i] = CRGB(0, 0, field_split_brightness_pos(i, t));
   }
   for (int i = back_right; i < back_right + one_side_leds/2; i++){
-    leds[i % tot_len] = CRGB(field_split_brightness_pos(i % max_led, t), 0, low_intensity);
+    leds[i % tot_len] = CRGB(0, 0, field_split_brightness_pos(i % max_led, t));
   }
   for (int i = back_right + one_side_leds/2; i < tot_len + back_left; i++){ //back_right + one_side_leds
-    leds[i % tot_len] = CRGB(low_intensity, 0, field_split_brightness_pos(i % max_led, t)); 
+    leds[i % tot_len] = CRGB(field_split_brightness_pos(i % max_led, t), 0, 0); 
   }
 }
 
@@ -139,7 +143,7 @@ void rainbow(long t){
   int period = (int) (max_led / 2);
   int half_period = (int) (period / 2);
   for (int i = 0; i < tot_len; i++){
-    leds[i] = CHSV(255.0*((t + i) % period)/period, 255, 200);
+    leds[i] = CHSV(255.0*((t - i) % period)/period, 255, 200);
   }
   // field_split(t);
   // for (int i = 0; i < max_led; i++){
@@ -167,13 +171,16 @@ void flash_yellow(long t){
 void soft_pulse(bool end){
   CRGB color;
   float brightness;
+  int period = 120;
+  int half_period = period/2; 
   if (end){
-    brightness =  135 + 120*sin(millis() / 500);
-    color = CRGB(100*brightness, 60*brightness, 0);
+    brightness =  (int) (245.0*abs(((t * 3) % period) - half_period)/half_period) + 0;
+    color = CRGB(brightness, brightness, 0);
   }
   else  {
-    brightness =  135 + 120*sin(millis() / 50);
-    color = CRGB(120*brightness, 120*brightness, 0);
+    // brightness =  135 + 120*sin(millis() / 50);
+    brightness = (int) (245.0*abs(((t * 15) % period) - half_period)/half_period) + 0;
+    color = CRGB(brightness, brightness, 0);
   }
   for (int i = 0; i < tot_len; i++){
     leds[i] = color;

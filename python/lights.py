@@ -177,8 +177,10 @@ class FieldLED():
     def clear(self):
         send_colors_to_pixels(self.ser, (0, self.total_lights), np.array([0, 0, 0]))
 
-    def display_time(self, time_cur, mode):
+    def display_time(self, time_cur,prev_time, mode):
         tot_time = 105 if mode == 'driver' else 15
+        if prev_time == 0 and time_cur == 0:
+            return
         send_str(self.ser, f'x0 {time_cur} {tot_time}yz')
 
     def initialize_red_blue_osc(self):
@@ -224,8 +226,8 @@ if __name__ == '__main__':
     get_input_thread = threading.Thread(target=get_input)
     get_input_thread.start()
 
-    fields = [FieldLED('/dev/cu.usbmodem141301', 19200, 'Waymo', pretend=False),
-    FieldLED('/dev/cu.usbmodem14301', 19200, 'SpaceX', pretend=True),]
+    fields = [FieldLED('/dev/cu.usbmodem11301', 19200, 'Falcon', pretend=False),
+    FieldLED('/dev/cu.usbmodem14301', 19200, 'X-Wing', pretend=True),]
     # FieldLED('/dev/cu.usbmodem14401', 19200, 'R2-D2', [0, 450//4, 450//2, 450*3//4], total_lights=15*30)]
 
     current_field = None
@@ -239,6 +241,7 @@ if __name__ == '__main__':
     # match_info_thread = threading.Thread(target=match_info_ocr_thread)
     # match_info_thread.start()
 
+    prev_time = 15
     while True:
         if mode == 'm':
             if just_switched:
@@ -266,7 +269,8 @@ if __name__ == '__main__':
                 match_status = "autonomous"
             if current_field is not None and (match_mode in ['driver', 'autonomous', 'paused'] or \
                 time_remaining > 0): #and np.absolute((time_remaining - np.array([15, 105]))).min() > 2):
-                current_field.display_time(time_remaining, match_mode)
+                current_field.display_time(time_remaining, prev_time, match_mode)
+                prev_time = time_remaining
         elif mode == 'r':
             if just_switched:
                 for field in fields:
