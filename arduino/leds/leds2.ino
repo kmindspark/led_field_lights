@@ -105,10 +105,10 @@ int field_split_brightness_pos(int i, long t, bool simple){
     return 100;
   }
 
-  if (random(1, 10) > 5){
-    return 125;
-  }
-  return 0;
+  // if (random(1, 10) > 5){
+  //   return 125;
+  // }
+  return 100;
 }
 
 void field_split(long t, bool simple){
