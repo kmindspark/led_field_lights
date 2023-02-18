@@ -97,17 +97,21 @@ void calibrate(){
   leds[back_right] = CRGB(255, 255, 0);
 }
 
-int field_split_brightness_pos(int i, long t){
+int field_split_brightness_pos(int i, long t, bool simple){
   // int period = (int) (max_led / 16);
   // int half_period = (int) (period / 2);
   // return (int) (245.0*abs(((t - i) % period) - half_period)/half_period) + 10;
-  if (random(1, 10) > 3){
-    return 150;
+  if (simple){
+    return 100;
+  }
+
+  if (random(1, 10) > 5){
+    return 125;
   }
   return 0;
 }
 
-void field_split(long t, bool osc){
+void field_split(long t, bool simple){
   // int intensity = 100;
   // if (osc){
   //   intensity = 120 + 100*sin(((double) t) / ((double) 20));
@@ -120,22 +124,28 @@ void field_split(long t, bool osc){
   // }
 
   for (int i = back_left; i < front_left; i++){
-    leds[i] = CRGB(field_split_brightness_pos(i, t), 0, 0);
+    leds[i] = CRGB(field_split_brightness_pos(i, t, simple), 0, 0);
   }
   for (int i = front_left; i < (front_right + front_left)/2; i++){
-    leds[i] = CRGB(field_split_brightness_pos(i, t), 0, 0);
+    leds[i] = CRGB(field_split_brightness_pos(i, t, simple), 0, 0);
   }
   for (int i = (front_right + front_left)/2; i < front_right; i++){
-    leds[i] = CRGB(0, 0, field_split_brightness_pos(i, t));
+    leds[i] = CRGB(0, 0, field_split_brightness_pos(i, t, simple));
   }
   for (int i = front_right; i < back_right; i++){
-    leds[i] = CRGB(0, 0, field_split_brightness_pos(i, t));
+    leds[i] = CRGB(0, 0, field_split_brightness_pos(i, t, simple));
   }
   for (int i = back_right; i < back_right + one_side_leds/2; i++){
-    leds[i % tot_len] = CRGB(0, 0, field_split_brightness_pos(i % max_led, t));
+    leds[i % max_led] = CRGB(0, 0, field_split_brightness_pos(i % max_led, t, simple));
+    if (i < tot_len){
+      leds[i] = CRGB(0, 0, field_split_brightness_pos(i, t, simple));
+    }
   }
   for (int i = back_right + one_side_leds/2; i < tot_len + back_left; i++){ //back_right + one_side_leds
-    leds[i % tot_len] = CRGB(field_split_brightness_pos(i % max_led, t), 0, 0); 
+    leds[i % max_led] = CRGB(field_split_brightness_pos(i % max_led, t, simple), 0, 0); 
+    if (i < tot_len){
+      leds[i] = CRGB(0, 0, field_split_brightness_pos(i, t, simple));
+    }
   }
 }
 
@@ -143,7 +153,7 @@ void rainbow(long t){
   int period = (int) (max_led / 2);
   int half_period = (int) (period / 2);
   for (int i = 0; i < tot_len; i++){
-    leds[i] = CHSV(150.0*((t - i) % period)/period, 255, 200);
+    leds[i] = CHSV(255.0*((t - i) % period)/period, 255, 150);
   }
   // field_split(t);
   // for (int i = 0; i < max_led; i++){
@@ -263,7 +273,7 @@ void loop()
     }
 
     if (mode == 0){
-      field_split(0, false);
+      field_split(0, true);
       long now = millis();
       int delta = now - last_bound_update_time;
       if (cur_input_time != tot_time){
@@ -312,7 +322,7 @@ void loop()
     }
 
     if (mode == 4){
-      field_split(t, true);
+      field_split(t, false);
       FastLED.show();
       t += 1;
       delay(20);
