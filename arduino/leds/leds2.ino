@@ -77,8 +77,8 @@ void red_blue_chase(long t){
   int period = (int) (max_led / 2);
   int half_period = (int) (period / 2);
   for (int i = 0; i < tot_len; i++){
-    int r = (int) (255.0*abs(((t - i) % period) - half_period)/half_period);
-    int b = 255 - r;
+    int r = (int) (150.0*abs(((t - i) % period) - half_period)/half_period);
+    int b = 150 - r;
     leds[i] = CRGB(r, 0, b);
   }
 }
@@ -102,7 +102,7 @@ int field_split_brightness_pos(int i, long t){
   // int half_period = (int) (period / 2);
   // return (int) (245.0*abs(((t - i) % period) - half_period)/half_period) + 10;
   if (random(1, 10) > 3){
-    return 255;
+    return 150;
   }
   return 0;
 }
@@ -143,7 +143,7 @@ void rainbow(long t){
   int period = (int) (max_led / 2);
   int half_period = (int) (period / 2);
   for (int i = 0; i < tot_len; i++){
-    leds[i] = CHSV(255.0*((t - i) % period)/period, 255, 200);
+    leds[i] = CHSV(150.0*((t - i) % period)/period, 255, 200);
   }
   // field_split(t);
   // for (int i = 0; i < max_led; i++){
@@ -189,10 +189,10 @@ void soft_pulse(bool end){
 
 
 void display_time(double fraction){
-  if (time_upper < 10000 && time_upper > 8000 && tot_time == 105000){
+  if (fraction < 10000/105000 && fraction > 8000/105000 && tot_time == 105000){
     soft_pulse(false);
   }
-  else if (time_upper < 100){
+  else if (fraction < 100/105000){
     soft_pulse(true);
   }
   else{
@@ -203,7 +203,7 @@ void display_time(double fraction){
     // Serial.println(middle_brightness);
     // Serial.println(num_bright);
     for (int i = front_left; i < front_left + num_bright; i++){
-      leds[i] = CRGB(100, 0, 100);
+      leds[i] = CRGB(0, 100, 0);
     }
     leds[front_left + num_bright] = CRGB(middle_brightness, 0, middle_brightness);
     for (int i = front_left + num_bright + 1; i < front_right; i++){
